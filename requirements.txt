@@ -1,0 +1,5 @@
+opencv-python==4.5.5.64
+PyQt5==5.15.6
+moviepy==1.0.3
+pandas==1.4.2
+Pillow==9.1.0
