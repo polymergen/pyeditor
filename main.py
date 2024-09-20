@@ -21,6 +21,7 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 import subprocess 
+from detect_filter import *
 
 
 class ImageWidget(QWidget):
@@ -108,15 +109,92 @@ class VideoSceneEditor(QWidget):
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.table, 1)
 
+        # Load No Face Ranges button
+        self.load_no_face_btn = QPushButton("Load No Face Ranges")
+        self.load_no_face_btn.setMinimumSize(250, 150)  # Set the minimum size (width, height)
+        self.load_no_face_btn.clicked.connect(self.load_no_face_ranges)
+        layout.addWidget(self.load_no_face_btn)
+
         # Keep selected scenes button
         self.keep_btn = QPushButton("Keep Selected Scenes")
         self.keep_btn.setMinimumSize(250, 150)  # Set the minimum size (width, height)
         self.keep_btn.clicked.connect(self.keep_selected_scenes)
         layout.addWidget(self.keep_btn)
 
+        # Create another similar table
+        self.table_no_face = QTableWidget()
+        self.table_no_face.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(
+            ["Scene Number", "Images", "play", "Keep?"]
+        )
+        self.table_no_face.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_no_face.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout.addWidget(self.table_no_face)
+
         self.setLayout(layout)
         self.setWindowTitle("Video Scene Editor")
         self.show()
+
+    def load_no_face_ranges(self):
+        input_video = self.input_video.text()
+        ranges =  get_frames_w_no_face(input_video, providers)
+
+        # assuming ranges is a list of tuple, containing start and end time of each range
+        # populate the table with the ranges similar to self.table
+        for i, range in enumerate(ranges):
+            start_time = range[0]
+            end_time = range[1]
+            
+            start_time = (
+                str(int(start_time // 3600)).zfill(2)
+                + ":"
+                + str(int((start_time % 3600) // 60)).zfill(2)
+                + ":"
+                + str(int(start_time % 60)).zfill(2)
+            )
+            end_time = (
+                str(int(end_time // 3600)).zfill(2)
+                + ":"
+                + str(int((end_time % 3600) // 60)).zfill(2)
+                + ":"
+                + str(int(end_time % 60)).zfill(2)
+            )
+            
+            self.table_no_face.setItem(i, 0, QTableWidgetItem(str(i)))
+
+            # Get images for the scene
+            images = self.get_scene_images(start_frame, end_frame)
+            image_widget = QWidget()
+            image_layout = QHBoxLayout(image_widget)
+            image_layout.setContentsMargins(0, 0, 0, 0)  # Reduce margins
+            for image in images:
+                label = QLabel()
+                pixmap = QPixmap(image)
+                pixmap = pixmap.scaledToHeight(
+                    250, Qt.SmoothTransformation
+                )  # Set minimum height to 150 pixels
+                label.setPixmap(pixmap)
+                image_layout.addWidget(label)
+
+            self.table_no_face.setCellWidget(i, 1, image_widget)
+            self.table_no_face.setRowHeight(
+                i, 260
+            )  # Set row height to accommodate images plus some padding
+
+            # add play button that plays the video from the range of start_frame to end_frame
+            play_btn = QPushButton("Play ({}s - {}s)".format(start_time, end_time))
+            self.table_no_face.setCellWidget(i, 2, play_btn)
+            play_btn.clicked.connect(
+                lambda checked, start_time=start_time, end_time=end_time: self.play_video(
+                    start_time, end_time
+                )
+            )
+
+            # Add checkbox (initially checked)
+            checkbox = QCheckBox()
+            checkbox.setChecked(True)
+            checkbox.setFixedSize(120, 120)  # Set the size to 20x20 pixels
+            self.table_no_face.setCellWidget(i, 3, checkbox)
 
     def browse_input_video(self):
         filename, _ = QFileDialog.getOpenFileName(
