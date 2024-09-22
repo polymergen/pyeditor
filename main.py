@@ -162,6 +162,13 @@ class VideoSceneEditor(QWidget):
             
             self.table_no_face.setItem(i, 0, QTableWidgetItem(str(i)))
 
+
+            # Get start frame given start time
+            video = cv2.VideoCapture(input_video)
+            fps = video.get(cv2.CAP_PROP_FPS)
+            start_frame = int(fps * range[0])
+            end_frame = int(fps * range[1])
+            
             # Get images for the scene
             images = self.get_scene_images(start_frame, end_frame)
             image_widget = QWidget()
