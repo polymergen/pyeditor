@@ -58,6 +58,32 @@ class ImageWidget(QWidget):
                 )
 
 
+def find_contiguous_sequences(frames, min_length):
+    # Sort the frames to ensure they are in order
+    frames.sort()
+
+    # To store the contiguous sequences
+    contiguous_sequences = []
+    current_sequence = [frames[0]]
+
+    # Iterate through the sorted frames and find contiguous sequences
+    for i in range(1, len(frames)):
+        # Check if the current frame is contiguous with the previous frame
+        if frames[i] == frames[i - 1] + 1:
+            current_sequence.append(frames[i])
+        else:
+            # If not contiguous, store the current sequence and start a new one
+            if len(current_sequence) >= min_length:
+                contiguous_sequences.append(current_sequence)
+            current_sequence = [frames[i]]
+
+    # Don't forget to add the last sequence
+    if len(current_sequence) >= min_length:
+        contiguous_sequences.append(current_sequence)
+
+    return contiguous_sequences
+
+
 class VideoSceneEditor(QWidget):
     def __init__(self):
         super().__init__()
@@ -109,26 +135,33 @@ class VideoSceneEditor(QWidget):
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.table, 1)
 
-        # Load No Face Ranges button
-        self.load_no_face_btn = QPushButton("Load No Face Ranges")
-        self.load_no_face_btn.setMinimumSize(250, 150)  # Set the minimum size (width, height)
-        self.load_no_face_btn.clicked.connect(self.load_no_face_ranges)
-        layout.addWidget(self.load_no_face_btn)
-
+        # TODO: add a button to enable extracting scenes using pyscenedtector
+        # make sure it then loads the scenes file into the csv textbox above
+        
         # Keep selected scenes button
         self.keep_btn = QPushButton("Keep Selected Scenes")
         self.keep_btn.setMinimumSize(250, 150)  # Set the minimum size (width, height)
         self.keep_btn.clicked.connect(self.keep_selected_scenes)
         layout.addWidget(self.keep_btn)
 
+        # Load No Face Ranges button
+        self.load_no_face_btn = QPushButton("Load No Face Ranges")
+        self.load_no_face_btn.setMinimumSize(
+            250, 150
+        )  # Set the minimum size (width, height)
+        self.load_no_face_btn.clicked.connect(self.load_no_face_ranges)
+        layout.addWidget(self.load_no_face_btn)
+
         # Create another similar table
         self.table_no_face = QTableWidget()
         self.table_no_face.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(
+        self.table_no_face.setHorizontalHeaderLabels(
             ["Scene Number", "Images", "play", "Keep?"]
         )
         self.table_no_face.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table_no_face.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # set fixed height to table
+        self.table_no_face.setFixedHeight(500)
         layout.addWidget(self.table_no_face)
 
         self.setLayout(layout)
@@ -137,14 +170,22 @@ class VideoSceneEditor(QWidget):
 
     def load_no_face_ranges(self):
         input_video = self.input_video.text()
-        ranges =  get_frames_w_no_face(input_video, providers)
+        frames_list, fps=  get_frames_w_no_face(input_video, providers)
+        frames_list_filtered = find_contiguous_sequences(frames_list, fps)
+        # flatten the list
+        frames_list_filtered = [item for sublist in frames_list_filtered for item in sublist] 
 
+        ranges = create_time_range_list_from_frame_info(frames_list_filtered, fps)
+
+        self.table_no_face.setRowCount(len(ranges))
+
+        print("Ranges: ", ranges)
         # assuming ranges is a list of tuple, containing start and end time of each range
         # populate the table with the ranges similar to self.table
         for i, range in enumerate(ranges):
             start_time = range[0]
             end_time = range[1]
-            
+
             start_time = (
                 str(int(start_time // 3600)).zfill(2)
                 + ":"
@@ -159,16 +200,13 @@ class VideoSceneEditor(QWidget):
                 + ":"
                 + str(int(end_time % 60)).zfill(2)
             )
-            
+
             self.table_no_face.setItem(i, 0, QTableWidgetItem(str(i)))
 
-
             # Get start frame given start time
-            video = cv2.VideoCapture(input_video)
-            fps = video.get(cv2.CAP_PROP_FPS)
             start_frame = int(fps * range[0])
             end_frame = int(fps * range[1])
-            
+
             # Get images for the scene
             images = self.get_scene_images(start_frame, end_frame)
             image_widget = QWidget()
@@ -302,14 +340,23 @@ class VideoSceneEditor(QWidget):
 
         print("mpv --start=" + start_time + " --end=" + end_time + " " + video_file)
         # run mpv command to play the video
-        subprocess.run(
+        result = subprocess.run(
             [
                 "mpv",
                 "--start=" + start_time,
                 "--end=" + end_time,
                 video_file,
-            ]
+            ],
+            text=True,
+            stderr=subprocess.PIPE,
         )
+
+        if result.returncode == 0:
+            print("Subprocess ran successfully")
+        else:
+            print(f"Subprocess failed with return code {result.returncode}")
+            print(f"Error output: {result.stderr}")
+            print(f"Std output: {result.stdout}")
 
     def get_scene_images(self, start_frame, end_frame):
         video = cv2.VideoCapture(self.input_video.text())
@@ -323,6 +370,7 @@ class VideoSceneEditor(QWidget):
             ret, img = video.read()
             if ret:
                 filename = f"temp_frame_{frame}.jpg"
+                # TODO: avoid saving the image to disk
                 cv2.imwrite(filename, img)
                 images.append(filename)
 
@@ -354,7 +402,6 @@ class VideoSceneEditor(QWidget):
 
         video.close()
         self.close()
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

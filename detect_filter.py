@@ -5,7 +5,6 @@ import insightface
 from tqdm import tqdm
 import torch
 import onnxruntime as rt
-from swapperfp16 import get_model
 import pdb
 
 from concurrent.futures import ThreadPoolExecutor
@@ -23,7 +22,6 @@ def get_sess_options():
 
 
 def get_analyser(providers):
-    global get_model
     sess_options = get_sess_options()
     print(providers)
     face_analyser = insightface.app.FaceAnalysis(
@@ -70,7 +68,7 @@ def get_frames_w_no_face(input_video, provider_list):
 
             has_face = find_face(frame, face_analyser)
 
-            if has_face:
+            if not has_face:
                 frame_info.append(frame_number)
 
             frame_number += 1
@@ -209,13 +207,8 @@ providers = [
     "CPUExecutionProvider",
 ]
 
-# Main process
-input_video = "D:\\awan\\iCloudDrive\\CloudData\\Settings\\Config\\Google\\UserSettings\\Mapdata\\MiYaaukmi\\MapSamples\\geRairIaijsIEiatHltSendtauRymtbotnegeknibAktnnmutSngn.mif"
-output_video = "D:\\ini\\UserSettings\\Google\\Config\\LandingZone\\outputs\\temp.mp4"
-final_output = (
-    "D:\\ini\\UserSettings\\Google\\Config\\LandingZone\\outputs\\test_final.mp4"
-)
 
-frame_info, fps = get_frames_w_no_face(input_video, output_video, providers)
+
+# frame_info, fps = get_frames_w_no_face(input_video, output_video, providers)
 # cut_list = create_audio_cut_list(frame_info, fps)
 # cut_audio_and_merge(input_video, output_video, cut_list, final_output)
