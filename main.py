@@ -15,8 +15,10 @@ from PyQt5.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QCheckBox,
-    QSizePolicy
+    QSizePolicy,
+    QMessageBox
 )
+
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt
 from moviepy.editor import VideoFileClip, concatenate_videoclips
@@ -135,9 +137,18 @@ class VideoSceneEditor(QWidget):
         self.table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout.addWidget(self.table, 1)
 
-        # TODO: add a button to enable extracting scenes using pyscenedtector
-        # make sure it then loads the scenes file into the csv textbox above
+        # Generate Scenes button
+        self.generate_scenes_csv_btn = QPushButton("Generate Scenes File")
+        self.generate_scenes_csv_btn.setMinimumSize(150, 150)
+        self.generate_scenes_csv_btn.clicked.connect(self.generate_scenes_csv)
+        layout.addWidget(self.generate_scenes_csv_btn)
         
+        # Load Scenes From CSV button
+        self.load_scenes_btn = QPushButton("Load Scenes From CSV")
+        self.load_scenes_btn.setMinimumSize(150, 150)
+        self.load_scenes_btn.clicked.connect(self.load_scenes)
+        layout.addWidget(self.load_scenes_btn)
+
         # Keep selected scenes button
         self.keep_btn = QPushButton("Keep Selected Scenes")
         self.keep_btn.setMinimumSize(250, 150)  # Set the minimum size (width, height)
@@ -156,7 +167,7 @@ class VideoSceneEditor(QWidget):
         self.table_no_face = QTableWidget()
         self.table_no_face.setColumnCount(4)
         self.table_no_face.setHorizontalHeaderLabels(
-            ["Scene Number", "Images", "play", "Keep?"]
+            ["Scene Number", "Images", "play", "Remove?"]
         )
         self.table_no_face.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table_no_face.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -182,7 +193,13 @@ class VideoSceneEditor(QWidget):
         print("Ranges: ", ranges)
         # assuming ranges is a list of tuple, containing start and end time of each range
         # populate the table with the ranges similar to self.table
+        self.no_face_data = []
         for i, range in enumerate(ranges):
+            self.no_face_data.append({
+                "scene_number": i,
+                "start_time": range[0],
+                "end_time": range[1]
+            })
             start_time = range[0]
             end_time = range[1]
 
@@ -243,7 +260,7 @@ class VideoSceneEditor(QWidget):
 
     def browse_input_video(self):
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Select Input Video", "", "Video Files (*.mp4 *.avi)"
+            self, "Select Input Video", "", "*"
         )
         if filename:
             self.input_video.setText(filename)
@@ -259,9 +276,9 @@ class VideoSceneEditor(QWidget):
         )
         if filename:
             self.csv_file.setText(filename)
-            self.load_scenes(filename)
 
-    def load_scenes(self, csv_file):
+    def load_scenes(self):
+        csv_file = self.csv_file.text()
         df = pd.read_csv(csv_file)
         self.table.setRowCount(len(df))
         self.scenes_data = []  # Clear previous data
@@ -380,21 +397,42 @@ class VideoSceneEditor(QWidget):
     def keep_selected_scenes(self):
         video = VideoFileClip(self.input_video.text())
         scenes_to_keep = []
+        
+        scenes_to_remove = []        
+        # check table_no_face checkboxes so that we only include the range for which checkbox is checked
+        for i, scene_data in enumerate(self.no_face_data):
+            # If the checkbox is checked, include the scene in the scene_to_remove list
+            if self.table_no_face.cellWidget(i, 3).isChecked():
+                scenes_to_remove.append((scene_data["start_time"], scene_data["end_time"]))
+                
 
         for i, scene_data in enumerate(self.scenes_data):
             # If the checkbox is checked, keep the scene
-            if self.table.cellWidget(i, 2).isChecked():
+            if self.table.cellWidget(i, 3).isChecked():
                 start_frame = scene_data["start_frame"]
                 end_frame = scene_data["end_frame"]
                 start_time = start_frame / video.fps
                 end_time = end_frame / video.fps
-                scenes_to_keep.append(video.subclip(start_time, end_time))
+                
+                # Check if this scene overlaps with any scene to remove
+                scene_clip = video.subclip(start_time, end_time)
+                for remove_start, remove_end in scenes_to_remove:
+                    # If there's an overlap, split the scene and keep non-overlapping parts
+                    if remove_start < end_time and remove_end > start_time:
+                        if remove_start > start_time:
+                            scenes_to_keep.append(scene_clip.subclip(0, remove_start - start_time))
+                        if remove_end < end_time:
+                            scenes_to_keep.append(scene_clip.subclip(remove_end - start_time, end_time - start_time))
+                        break
+                    else:
+                        # If no overlap, keep the entire scene
+                        scenes_to_keep.append(scene_clip)
 
         if scenes_to_keep:
             final_clip = concatenate_videoclips(scenes_to_keep)
-            input_file = self.input_video.text()  # Assuming input_video is a QLineEdit containing the input file path
+            input_file = self.input_video.text()
             base_filename = os.path.splitext(os.path.basename(input_file))[0]
-            output_file = os.path.join(self.output_path.text(), f"{base_filename}.mp4")
+            output_file = os.path.join(self.output_path.text(), f"{base_filename}_edited.mp4")
             final_clip.write_videofile(output_file)
             print(f"Video saved to {output_file}")
         else:
@@ -402,6 +440,49 @@ class VideoSceneEditor(QWidget):
 
         video.close()
         self.close()
+
+    def generate_scenes_csv(self):
+        # check if scenes file already specified
+        if self.csv_file.text() != "":
+            # show warning dialog
+
+            # show warning dialog
+            reply = QMessageBox.question(
+                self, 'Warning', 
+                "Scenes file has been specified. Do you want to replace it?", 
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+
+            if reply == QMessageBox.No: return
+            scenes_file = self.csv_file.text()
+
+        else:
+            # folder of the input video
+            folder = os.path.dirname(self.input_video.text())
+            # get basename without extension
+            basename = os.path.splitext(os.path.basename(self.input_video.text()))[0]
+            scenes_file = folder +  "\\" + basename + ".csv"
+
+        input_video = self.input_video.text()
+        
+        if os.path.exists(scenes_file):
+            os.remove(scenes_file)
+
+        subprocess.run(
+            [
+                "D:\Installed\Anaconda\envs\scenedetection_python\Scripts\scenedetect.exe",
+                "-i",
+                input_video,
+                "list-scenes",
+                "-f",
+                scenes_file,
+                "-s",
+                "detect-adaptive",
+            ]
+            
+        )
+        self.csv_file.setText(scenes_file)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
