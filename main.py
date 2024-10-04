@@ -243,9 +243,8 @@ class VideoSceneEditor(QWidget):
             # total engulfed
             elif float(range[0]) >= float(excluded_range[0]) and float(range[1]) <= float(excluded_range[1]):
                 return True
-            else:
-                print("Does not overlap with excluded scene: ", range, excluded_range)
-                return False
+        print("Does not overlap with excluded scene: ", range, excluded_range)
+        return False
 
     def load_no_face_ranges(self):
         input_video = self.input_video.text()
