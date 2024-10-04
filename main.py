@@ -17,11 +17,11 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QSizePolicy,
     QMessageBox,
-    QSplitter
+    QSplitter    
 )
 
 import logging
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QIntValidator
 from PyQt5.QtCore import Qt
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 import subprocess 
@@ -29,7 +29,7 @@ from detect_filter import *
 import pickle
 
 logging.basicConfig(
-    level=logging.INFO, format="%(levelname)s - Line: %(lineno)d - %(message)s"
+    level=logging.DEBUG, format="%(levelname)s - Line: %(lineno)d - %(message)s"
 )
 
 class CenteredCheckBox(QWidget):
@@ -162,23 +162,33 @@ class VideoSceneEditor(QWidget):
 
         splitter.addWidget(self.table)
 
+        # Create QHBox layout for buttons
+        button_layout_widget = QWidget()
+        button_layout = QHBoxLayout(button_layout_widget)
+
         # Generate Scenes button
         self.generate_scenes_csv_btn = QPushButton("Generate Scenes File")
         self.generate_scenes_csv_btn.setMinimumSize(150, 50)
         self.generate_scenes_csv_btn.clicked.connect(self.generate_scenes_csv)
-        splitter.addWidget(self.generate_scenes_csv_btn)
+        button_layout.addWidget(self.generate_scenes_csv_btn)
+
+        # parameter for min min of each scene
+        self.min_scene_length_line_edit = QLineEdit()
+        # set to restrict to numbers
+        self.min_scene_length_line_edit.setValidator(QIntValidator())
+        button_layout.addWidget(self.min_scene_length_line_edit)
 
         # Load Scenes From CSV button
         self.load_scenes_btn = QPushButton("Load Scenes From CSV")
         self.load_scenes_btn.setMinimumSize(150, 50)
         self.load_scenes_btn.clicked.connect(self.load_scenes)
-        splitter.addWidget(self.load_scenes_btn)
+        button_layout.addWidget(self.load_scenes_btn)
 
         # Keep selected scenes button
         self.keep_btn = QPushButton("Keep Selected Scenes")
         self.keep_btn.setMinimumSize(250, 50)  # Set the minimum size (width, height)
         self.keep_btn.clicked.connect(self.keep_selected_scenes)
-        splitter.addWidget(self.keep_btn)
+        button_layout.addWidget(self.keep_btn)
 
         # Load No Face Ranges button
         self.load_no_face_btn = QPushButton("Load No Face Ranges")
@@ -186,7 +196,9 @@ class VideoSceneEditor(QWidget):
             250, 50
         )  # Set the minimum size (width, height)
         self.load_no_face_btn.clicked.connect(self.load_no_face_ranges)
-        splitter.addWidget(self.load_no_face_btn)
+        button_layout.addWidget(self.load_no_face_btn)
+
+        splitter.addWidget(button_layout_widget)
 
         # Create another similar table
         self.table_no_face = QTableWidget()
@@ -208,6 +220,32 @@ class VideoSceneEditor(QWidget):
         self.setLayout(master_layout)
         self.setWindowTitle("Video Scene Editor")
         self.show()
+
+    def overlaps_with_excluded_scenes(self, range, excluded_scenes):
+        # check if range overlaps with any of the excluded scenes
+        for excluded_range in excluded_scenes:
+            # start point lies in excluded range
+            if float(range[0]) >= float(excluded_range[0]) and float(range[0]) <= float(excluded_range[1]):
+                print("scene {} overlaps with excluded scene: {} to {}".format(range, excluded_range[0], excluded_range[1]))
+                return True
+            # end point lies in excluded range
+            elif float(range[1]) >= float(excluded_range[0]) and float(range[1]) <= float(excluded_range[1]):
+                print("scene {} overlaps with excluded scene: {} to {}".format(range, excluded_range[0], excluded_range[1]))
+                return True
+            # the range itself engulfs the excluded range
+            elif float(range[0]) <= float(excluded_range[0]) and float(range[1]) >= float(excluded_range[1]):
+                print(
+                    "scene {} overlaps with excluded scene: {} to {}".format(
+                        range, excluded_range[0], excluded_range[1]
+                    )
+                )
+                return True
+            # total engulfed
+            elif float(range[0]) >= float(excluded_range[0]) and float(range[1]) <= float(excluded_range[1]):
+                return True
+            else:
+                print("Does not overlap with excluded scene: ", range, excluded_range)
+                return False
 
     def load_no_face_ranges(self):
         input_video = self.input_video.text()
@@ -234,14 +272,29 @@ class VideoSceneEditor(QWidget):
             with open(pickle_file, "wb") as file:
                 pickle.dump(ranges, file)
 
-        logging.info("Ranges: ", ranges)
+        excluded_scenes = []
+        for i, scene_data in enumerate(self.scenes_data):
+            if not self.table.cellWidget(i, 2).checkbox.isChecked():
+                excluded_scenes.append(
+                    (scene_data["start_time"], scene_data["end_time"])
+                )
+        post_filtered_range = []
+
+        for i, iter_range in enumerate(ranges):
+
+            if self.overlaps_with_excluded_scenes(iter_range, excluded_scenes): 
+                continue
+            else:
+                post_filtered_range.append(iter_range)
+
+        ranges = post_filtered_range
 
         # set row count of table
-        self.table_no_face.setRowCount(len(ranges))
+        self.table_no_face.setRowCount(len(post_filtered_range))
         # assuming ranges is a list of tuple, containing start and end time of each range
         # populate the table with the ranges similar to self.table
         self.no_face_data = []
-        for i, iter_range in enumerate(ranges):
+        for i, iter_range in enumerate(post_filtered_range):
             self.no_face_data.append({
                 "scene_number": i,
                 "start_time": iter_range[0],
@@ -301,6 +354,7 @@ class VideoSceneEditor(QWidget):
             centered_checkbox = CenteredCheckBox(set_checked=False)
             self.table_no_face.setCellWidget(i, 2, centered_checkbox)
 
+        pass
     def browse_input_video(self):
         filename, _ = QFileDialog.getOpenFileName(
             self, "Select Input Video", "", "*"
@@ -333,6 +387,8 @@ class VideoSceneEditor(QWidget):
             start_time = float(row["Start Time (seconds)"])
             end_time = float(row["End Time (seconds)"])
 
+            ori_start_time = start_time
+            ori_end_time = end_time
             start_time = (
                 str(int(start_time // 3600)).zfill(2)
                 + ":"
@@ -353,6 +409,8 @@ class VideoSceneEditor(QWidget):
                     "scene_number": scene_number,
                     "start_frame": start_frame,
                     "end_frame": end_frame,
+                    "start_time": ori_start_time,
+                    "end_time": ori_end_time,
                 }
             )
 
@@ -597,13 +655,13 @@ class VideoSceneEditor(QWidget):
                 "D:\Installed\Anaconda\envs\scenedetection_python\Scripts\scenedetect.exe",
                 "-i",
                 input_video,
+                # "--merge-last-scene",
                 "list-scenes",
                 "-f",
                 scenes_file,
                 "-s",
                 "detect-adaptive",
             ]
-            
         )
         self.csv_file.setText(scenes_file)
 
