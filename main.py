@@ -20,6 +20,9 @@ from PyQt5.QtWidgets import (
     QSplitter    
 )
 
+GLOBAL_IMAGE_HEIGHT = 30
+TOTAL_SCREENCAPS = 9
+
 import logging
 from PyQt5.QtGui import QPixmap, QImage, QIntValidator
 from PyQt5.QtCore import Qt
