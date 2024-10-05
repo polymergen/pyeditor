@@ -35,16 +35,23 @@ logging.basicConfig(
     level=logging.DEBUG, format="%(levelname)s - Line: %(lineno)d - %(message)s"
 )
 
-class CenteredCheckBox(QWidget):
-    def __init__(self, parent=None, set_checked=False):
-        super().__init__(parent)
-        layout = QHBoxLayout(self)
-        self.checkbox = QCheckBox()
-        self.checkbox.setChecked(set_checked)
-        self.checkbox.setFixedSize(120, 120)  # Set the size to 120x120 pixels
-        layout.addWidget(self.checkbox, alignment=Qt.AlignCenter)
-        layout.setContentsMargins(0, 0, 0, 0)  # Remove any margins
-        self.setLayout(layout)
+
+class CustomTableWidget(QTableWidget):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.MultiSelection)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            item = self.itemAt(event.pos())
+            if item is None:
+                row = self.rowAt(event.pos().y())
+                if row >= 0:
+                    self.selectRow(row)
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
 
 
 class ImageWidget(QWidget):
