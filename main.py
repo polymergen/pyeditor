@@ -311,7 +311,7 @@ class VideoSceneEditor(QWidget):
             start_frame = int(fps * iter_range[0])
             end_frame = int(fps * iter_range[1])
 
-            image_widget, max_button_width = self.populate_rows( self.table_no_face,
+            image_widget, max_button_width = self.populate_row( self.table_no_face,
                 max_button_width, start_frame, end_frame, start_time, end_time, i
             )
 
@@ -383,7 +383,7 @@ class VideoSceneEditor(QWidget):
                 }
             )
 
-            image_widget, max_button_width = self.populate_rows( self.table, max_button_width, start_frame, end_frame, start_time, end_time, i)
+            image_widget, max_button_width = self.populate_row( self.table, max_button_width, start_frame, end_frame, start_time, end_time, i)
             self.table.selectRow(i)
 
         column_width = image_widget.sizeHint().width()
@@ -413,7 +413,7 @@ class VideoSceneEditor(QWidget):
 
         return start_time,end_time,ori_start_time,ori_end_time
 
-    def populate_rows(self, table, max_button_width, start_frame, end_frame, start_time, end_time, i):
+    def populate_row(self, table, max_button_width, start_frame, end_frame, start_time, end_time, i):
         # Get images for the scene
         images = self.get_scene_images(start_frame, end_frame)
         image_widget, grid_dimension = self.populate_scene_images(images)
@@ -470,27 +470,34 @@ class VideoSceneEditor(QWidget):
             logging.info(f"Std output: {result.stdout}")
 
     def get_scene_images(self, start_frame, end_frame):
-        video = cv2.VideoCapture(self.input_video.text())
-        num_frames = TOTAL_SCREENCAPS # You can change this variable to specify the number of frames
+        video_path = self.input_video.text()
+        video = cv2.VideoCapture(video_path)
+        
+        if not video.isOpened():
+            raise ValueError(f"Cannot open video file: {video_path}")
+        
+        num_frames = TOTAL_SCREENCAPS  # You can change this variable to specify the number of frames
         scene_length = end_frame - start_frame + 1
         interval = scene_length // (num_frames + 1)  # Divide the scene into (num_frames + 1) equal parts
         frames = [start_frame + i * interval for i in range(1, num_frames + 1)]
         images = []
-
+    
         for frame in frames:
             video.set(cv2.CAP_PROP_POS_FRAMES, frame)
             ret, img = video.read()
             if ret:
-                # Step 2: Convert from BGR to RGB
+                # Convert from BGR to RGB
                 image_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-                # Step 3: Convert the NumPy array to QImage
+    
+                # Convert the NumPy array to QImage
                 height, width, channel = image_rgb.shape
                 bytes_per_line = 3 * width  # 3 bytes per pixel for RGB
                 q_image = QImage(image_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
-
+    
                 images.append(q_image)
-
+            else:
+                print(f"Warning: Could not read frame {frame}")
+    
         video.release()
         return images
 
