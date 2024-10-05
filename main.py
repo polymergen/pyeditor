@@ -163,7 +163,7 @@ class VideoSceneEditor(QWidget):
         splitter.addWidget(csv_layout_widget)
 
         # Table
-        self.table = QTableWidget()
+        self.table = CustomTableWidget()
         self.table.verticalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.setColumnCount(3)
@@ -211,7 +211,7 @@ class VideoSceneEditor(QWidget):
         splitter.addWidget(button_layout_widget)
 
         # Create another similar table
-        self.table_no_face = QTableWidget()
+        self.table_no_face = CustomTableWidget()
         self.table_no_face.verticalHeader().setSectionResizeMode(
             QHeaderView.Interactive
         )
