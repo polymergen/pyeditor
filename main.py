@@ -12,12 +12,12 @@ from PyQt5.QtWidgets import (
     QPushButton,
     QFileDialog,
     QTableWidget,
-    QTableWidgetItem,
     QHeaderView,
-    QCheckBox,
     QSizePolicy,
     QMessageBox,
-    QSplitter    
+    QSplitter,
+    QAbstractItemView,
+    QGridLayout
 )
 
 GLOBAL_IMAGE_HEIGHT = 30
@@ -129,7 +129,7 @@ class VideoSceneEditor(QWidget):
         input_layout.addWidget(QLabel("Input Video:"))
         self.input_video = QLineEdit()
         # add initial value
-        self.input_video.setText("")
+        self.input_video.setText("D:\\awan\\iCloudDrive\\CloudData\\Settings\\Config\\Google\\UserSettings\\Mapdata\\yShatioumnosinU\\MapSamples\\AbsenceBrought_part4.verilog")
         input_layout.addWidget(self.input_video)
         self.input_video_btn = QPushButton("Browse")
         self.input_video_btn.clicked.connect(self.browse_input_video)
@@ -155,7 +155,9 @@ class VideoSceneEditor(QWidget):
         csv_layout = QHBoxLayout(csv_layout_widget)
         csv_layout.addWidget(QLabel("CSV File:"))
         self.csv_file = QLineEdit()
-        self.csv_file.setText("")
+        self.csv_file.setText(
+            "D:\\awan\\iCloudDrive\\CloudData\\Settings\\Config\\Google\\UserSettings\\Mapdata\\yShatioumnosinU\\MapSamples\\AbsenceBrought_part4.csv"
+        )
         csv_layout.addWidget(self.csv_file)
         self.csv_file_btn = QPushButton("Browse")
         self.csv_file_btn.clicked.connect(self.browse_csv_file)
@@ -253,13 +255,13 @@ class VideoSceneEditor(QWidget):
             # total engulfed
             elif float(range[0]) >= float(excluded_range[0]) and float(range[1]) <= float(excluded_range[1]):
                 return True
-        print("Does not overlap with excluded scene: ", range, excluded_range)
         return False
 
     def load_no_face_ranges(self):
         input_video = self.input_video.text()
         video = VideoFileClip(self.input_video.text())
         fps = video.fps
+        max_button_width = 0
 
         # load ranges from pickle file if exist. Filename should use basename of input video and exist in the same folder as the input video
         input_video_basename = os.path.basename(input_video)
@@ -282,11 +284,14 @@ class VideoSceneEditor(QWidget):
                 pickle.dump(ranges, file)
 
         excluded_scenes = []
-        for i, scene_data in enumerate(self.scenes_data):
-            if not self.table.cellWidget(i, 2).checkbox.isChecked():
-                excluded_scenes.append(
-                    (scene_data["start_time"], scene_data["end_time"])
-                )
+        selected_rows = [index.row() for index in self.table.selectionModel().selectedRows()]
+        non_selected_rows = [row for row in range(self.table.rowCount()) if row not in selected_rows]
+        for row in non_selected_rows:
+            scene_data = self.scenes_data[row]
+            excluded_scenes.append(
+            (scene_data["start_time"], scene_data["end_time"])
+            )
+
         post_filtered_range = []
 
         for i, iter_range in enumerate(ranges):
@@ -303,6 +308,7 @@ class VideoSceneEditor(QWidget):
         # assuming ranges is a list of tuple, containing start and end time of each range
         # populate the table with the ranges similar to self.table
         self.no_face_data = []
+
         for i, iter_range in enumerate(post_filtered_range):
             self.no_face_data.append({
                 "scene_number": i,
@@ -312,58 +318,41 @@ class VideoSceneEditor(QWidget):
             start_time = iter_range[0]
             end_time = iter_range[1]
 
-            start_time = (
-                str(int(start_time // 3600)).zfill(2)
-                + ":"
-                + str(int((start_time % 3600) // 60)).zfill(2)
-                + ":"
-                + str(int(start_time % 60)).zfill(2)
-            )
-            end_time = (
-                str(int(end_time // 3600)).zfill(2)
-                + ":"
-                + str(int((end_time % 3600) // 60)).zfill(2)
-                + ":"
-                + str(int(end_time % 60)).zfill(2)
+            start_time, end_time, ori_start_time, ori_end_time = (
+                self.convert_time_to_string(start_time, end_time)
             )
 
             # Get start frame given start time
             start_frame = int(fps * iter_range[0])
             end_frame = int(fps * iter_range[1])
 
-            # Get images for the scene
-            images = self.get_scene_images(start_frame, end_frame)
-            image_widget = QWidget()
-            image_layout = QHBoxLayout(image_widget)
-            image_layout.setContentsMargins(0, 0, 0, 0)  # Reduce margins
-            for image in images:
-                label = QLabel()
-                pixmap = QPixmap.fromImage(image)
-                pixmap = pixmap.scaledToHeight(
-                    250, Qt.SmoothTransformation
-                )  # Set minimum height to 150 pixels
-                label.setPixmap(pixmap)
-                image_layout.addWidget(label)
-
-            self.table_no_face.setCellWidget(i, 0, image_widget)
-            self.table_no_face.setRowHeight(
-                i, 260
-            )  # Set row height to accommodate images plus some padding
-
-            # add play button that plays the video from the range of start_frame to end_frame
-            play_btn = QPushButton("Play ({}s - {}s)".format(start_time, end_time))
-            self.table_no_face.setCellWidget(i, 1, play_btn)
-            play_btn.clicked.connect(
-                lambda checked, start_time=start_time, end_time=end_time: self.play_video(
-                    start_time, end_time
-                )
+            image_widget, max_button_width = self.populate_rows( self.table_no_face,
+                max_button_width, start_frame, end_frame, start_time, end_time, i
             )
 
-            # Add checkbox (initially unchecked)
-            centered_checkbox = CenteredCheckBox(set_checked=False)
-            self.table_no_face.setCellWidget(i, 2, centered_checkbox)
+        column_width = image_widget.sizeHint().width()
+        self.table_no_face.setColumnWidth(0, column_width)
+        self.table_no_face.setColumnWidth(1, max_button_width + 20)
 
         pass
+
+    def populate_scene_images(self, images):
+        grid_dimension = int(len(images) ** 0.5)  # Set grid dimension based on the number of images
+        image_widget = QWidget()
+        image_layout = QGridLayout(image_widget)
+
+        image_layout.setContentsMargins(0, 0, 0, 0)  # Reduce margins           
+        for idx, image in enumerate(images):
+            label = QLabel()
+            pixmap = QPixmap.fromImage(image)
+            pixmap = pixmap.scaledToHeight(
+                          GLOBAL_IMAGE_HEIGHT , Qt.SmoothTransformation
+                )  # Set minimum height to 250 pixels
+            col = idx % grid_dimension
+            row = idx // grid_dimension
+            label.setPixmap(pixmap)
+            image_layout.addWidget(label, row, col)
+        return image_widget, grid_dimension
     def browse_input_video(self):
         filename, _ = QFileDialog.getOpenFileName(
             self, "Select Input Video", "", "*"
@@ -387,8 +376,9 @@ class VideoSceneEditor(QWidget):
         csv_file = self.csv_file.text()
         df = pd.read_csv(csv_file)
         self.table.setRowCount(len(df))
+        self.table.setSelectionMode(QAbstractItemView.MultiSelection)
         self.scenes_data = []  # Clear previous data
-
+        max_button_width = 0
         for i, row in df.iterrows():
             scene_number = row["Scene Number"]
             start_frame = row["Start Frame"]
@@ -396,22 +386,7 @@ class VideoSceneEditor(QWidget):
             start_time = float(row["Start Time (seconds)"])
             end_time = float(row["End Time (seconds)"])
 
-            ori_start_time = start_time
-            ori_end_time = end_time
-            start_time = (
-                str(int(start_time // 3600)).zfill(2)
-                + ":"
-                + str(int((start_time % 3600) // 60)).zfill(2)
-                + ":"
-                + str(int(start_time % 60)).zfill(2)
-            )
-            end_time = (
-                str(int(end_time // 3600)).zfill(2)
-                + ":"
-                + str(int((end_time % 3600) // 60)).zfill(2)
-                + ":"
-                + str(int(end_time % 60)).zfill(2)
-            )
+            start_time, end_time, ori_start_time, ori_end_time = self.convert_time_to_string(start_time, end_time)
 
             self.scenes_data.append(
                 {
@@ -423,43 +398,67 @@ class VideoSceneEditor(QWidget):
                 }
             )
 
-            # Get images for the scene
-            images = self.get_scene_images(start_frame, end_frame)
-            image_widget = QWidget()
-            image_layout = QHBoxLayout(image_widget)
-            image_layout.setContentsMargins(0, 0, 0, 0)  # Reduce margins
-            for image in images:
-                label = QLabel()
-                pixmap = QPixmap.fromImage(image)
-                pixmap = pixmap.scaledToHeight(
-                    250, Qt.SmoothTransformation
-                )  
-                label.setPixmap(pixmap)
-                image_layout.addWidget(label)
+            image_widget, max_button_width = self.populate_rows( self.table, max_button_width, start_frame, end_frame, start_time, end_time, i)
+            self.table.selectRow(i)
 
-            self.table.setCellWidget(i, 0, image_widget)
-            self.table.setRowHeight(
-                i, 260
-            )  # Set row height to accommodate images plus some padding
+        column_width = image_widget.sizeHint().width()
+        self.table.setColumnWidth(0, column_width)
+        self.table.setColumnWidth(1, max_button_width + 20)
 
-            # add play button that plays the video from the range of start_frame to end_frame
-            play_btn = QPushButton("Play ({}s - {}s)".format(start_time, end_time))
-            self.table.setCellWidget(i, 1, play_btn)
-            play_btn.clicked.connect(
-                lambda checked, start_time=start_time, end_time=end_time: self.play_video(
-                    start_time, end_time
-                )
+    def convert_time_to_string(self, start_time, end_time):
+        ori_start_time = start_time
+        ori_end_time = end_time
+        start_hours = str(int(start_time // 3600)).zfill(2)
+        start_minutes = str(int((start_time % 3600) // 60)).zfill(2)
+        start_seconds = str(int(start_time % 60)).zfill(2)
+
+        end_hours = str(int(end_time // 3600)).zfill(2)
+        end_minutes = str(int((end_time % 3600) // 60)).zfill(2)
+        end_seconds = str(int(end_time % 60)).zfill(2)
+
+        if start_hours == "00":
+            start_time = f"{start_minutes}:{start_seconds}"
+        else:
+            start_time = f"{start_hours}:{start_minutes}:{start_seconds}"
+
+        if end_hours == "00":
+            end_time = f"{end_minutes}:{end_seconds}"
+        else:
+            end_time = f"{end_hours}:{end_minutes}:{end_seconds}"
+
+        return start_time,end_time,ori_start_time,ori_end_time
+
+    def populate_rows(self, table, max_button_width, start_frame, end_frame, start_time, end_time, i):
+        # Get images for the scene
+        images = self.get_scene_images(start_frame, end_frame)
+        image_widget, grid_dimension = self.populate_scene_images(images)
+
+        table.setCellWidget(i, 0, image_widget)
+        table.setRowHeight(
+            i, 260
+        )  # Set row height to accommodate images plus some padding
+
+        # add play button that plays the video from the range of start_frame to end_frame
+        play_btn = QPushButton("Play ({}s - {}s)".format(start_time, end_time))
+        play_btn.setMaximumHeight(50)
+        play_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        play_btn.setStyleSheet("QPushButton { margin: 0 auto; }")
+        table.setCellWidget(i, 1, play_btn)
+
+        button_width = play_btn.sizeHint().width()
+        max_button_width = max(max_button_width, button_width)
+
+        play_btn.clicked.connect(
+            lambda checked, start_time=start_time, end_time=end_time: self.play_video(
+                start_time, end_time
             )
+        )
 
-            # Add checkbox (initially checked)
-            centered_checkbox = CenteredCheckBox(set_checked=True)
-            self.table.setCellWidget(i, 2, centered_checkbox)
-            for i in range(3):
-                self.table.horizontalHeader().setSectionResizeMode(
-                    i, QHeaderView.Interactive
-                )
+        # Calculate row height based on grid_dimension
+        row_height = (grid_dimension * GLOBAL_IMAGE_HEIGHT) + 10  
+        table.setRowHeight(i, row_height)
+        return image_widget, max_button_width
 
-    # define play_video function
     def play_video(self, start_time, end_time):
         # play the video from start_frame to end_frame
         video_file = self.input_video.text()
@@ -487,9 +486,10 @@ class VideoSceneEditor(QWidget):
 
     def get_scene_images(self, start_frame, end_frame):
         video = cv2.VideoCapture(self.input_video.text())
+        num_frames = TOTAL_SCREENCAPS # You can change this variable to specify the number of frames
         scene_length = end_frame - start_frame + 1
-        interval = scene_length // 4  # Divide the scene into 4 equal parts
-        frames = [start_frame, start_frame + interval, start_frame + 2 * interval]
+        interval = scene_length // (num_frames + 1)  # Divide the scene into (num_frames + 1) equal parts
+        frames = [start_frame + i * interval for i in range(1, num_frames + 1)]
         images = []
 
         for frame in frames:
@@ -535,17 +535,17 @@ class VideoSceneEditor(QWidget):
         scenes_to_keep = []
 
         scenes_to_remove = []        
-        # check table_no_face checkboxes so that we only include the range for which checkbox is checked
-        for i, scene_data in enumerate(self.no_face_data):
+
+        for i, no_face_scene_data in enumerate(self.no_face_data):
             # If the checkbox is checked, include the scene in the scene_to_remove list
-            if self.table_no_face.cellWidget(i, 2).checkbox.isChecked():
-                scenes_to_remove.append((scene_data["start_time"], scene_data["end_time"]))
+            if i in [index.row() for index in self.table_no_face.selectionModel().selectedRows()]:
+                scenes_to_remove.append((no_face_scene_data["start_time"], no_face_scene_data["end_time"]))
 
         keep_ranges = []
 
         for i, scene_data in enumerate(self.scenes_data):
-            # If the checkbox is checked, keep the scene
-            if self.table.cellWidget(i, 2).checkbox.isChecked():
+            # If the row is selected, keep the scene
+            if i in [index.row() for index in self.table.selectionModel().selectedRows()]:
                 start_frame = scene_data["start_frame"]
                 end_frame = scene_data["end_frame"]
                 start_time = start_frame / video.fps
