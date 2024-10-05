@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QGridLayout
 )
 
-GLOBAL_IMAGE_HEIGHT = 30
+GLOBAL_IMAGE_HEIGHT = 100
 TOTAL_SCREENCAPS = 9
 
 import logging
@@ -234,27 +234,16 @@ class VideoSceneEditor(QWidget):
         self.show()
 
     def overlaps_with_excluded_scenes(self, range, excluded_scenes):
-        # check if range overlaps with any of the excluded scenes
+        range_start, range_end = float(range[0]), float(range[1])
+        
         for excluded_range in excluded_scenes:
-            # start point lies in excluded range
-            if float(range[0]) >= float(excluded_range[0]) and float(range[0]) <= float(excluded_range[1]):
-                print("scene {} overlaps with excluded scene: {} to {}".format(range, excluded_range[0], excluded_range[1]))
+            excluded_start, excluded_end = float(excluded_range[0]), float(excluded_range[1])
+            
+            # Check for overlap
+            if (range_start <= excluded_end and range_end >= excluded_start):
+                print(f"scene {range} overlaps with excluded scene: {excluded_start} to {excluded_end}")
                 return True
-            # end point lies in excluded range
-            elif float(range[1]) >= float(excluded_range[0]) and float(range[1]) <= float(excluded_range[1]):
-                print("scene {} overlaps with excluded scene: {} to {}".format(range, excluded_range[0], excluded_range[1]))
-                return True
-            # the range itself engulfs the excluded range
-            elif float(range[0]) <= float(excluded_range[0]) and float(range[1]) >= float(excluded_range[1]):
-                print(
-                    "scene {} overlaps with excluded scene: {} to {}".format(
-                        range, excluded_range[0], excluded_range[1]
-                    )
-                )
-                return True
-            # total engulfed
-            elif float(range[0]) >= float(excluded_range[0]) and float(range[1]) <= float(excluded_range[1]):
-                return True
+        
         return False
 
     def load_no_face_ranges(self):
@@ -292,14 +281,10 @@ class VideoSceneEditor(QWidget):
             (scene_data["start_time"], scene_data["end_time"])
             )
 
-        post_filtered_range = []
-
-        for i, iter_range in enumerate(ranges):
-
-            if self.overlaps_with_excluded_scenes(iter_range, excluded_scenes): 
-                continue
-            else:
-                post_filtered_range.append(iter_range)
+        post_filtered_range = [
+            iter_range for iter_range in ranges
+            if not self.overlaps_with_excluded_scenes(iter_range, excluded_scenes)
+        ]
 
         ranges = post_filtered_range
 
