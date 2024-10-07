@@ -25,7 +25,7 @@ TOTAL_SCREENCAPS = 9
 
 import logging
 from PyQt5.QtGui import QPixmap, QImage, QIntValidator
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QEvent
 from moviepy.editor import VideoFileClip, concatenate_videoclips
 import subprocess 
 from detect_filter import *
@@ -39,8 +39,51 @@ logging.basicConfig(
 class CustomTableWidget(QTableWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.verticalScrollBar().setSingleStep(
+            10
+        )  # Adjust this value for desired smoothness
+        self.horizontalScrollBar().setSingleStep(10)
+
+        self.setShowGrid(False)  # Hide the default grid
+        self.setStyleSheet(
+            """
+            QTableWidget {
+                border: none;
+                gridline-color: transparent;
+            }
+            QTableWidget::item {
+                border-bottom: 2px solid #C0C0C0;  /* Adjust color and thickness as needed */
+                padding: 5px;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078D7;
+                color: white;
+            }
+            QHeaderView::section {
+                background-color: #F0F0F0;
+                border: none;
+                border-bottom: 2px solid #C0C0C0;
+                padding: 5px;
+            }
+        """
+        )
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.setSelectionMode(QAbstractItemView.MultiSelection)
+
+    def setRowHeight(self, row, height):
+        super().setRowHeight(row, height)
+        # Force update after setting row height
+        self.viewport().update()
+
+    def viewportEvent(self, event):
+        if event.type() == QEvent.Wheel:
+            # Ignore the event if Ctrl is pressed to allow zooming
+            if event.modifiers() & Qt.ControlModifier:
+                return False
+        return super().viewportEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -210,6 +253,22 @@ class VideoSceneEditor(QWidget):
         self.load_no_face_btn.clicked.connect(self.load_no_face_ranges)
         button_layout.addWidget(self.load_no_face_btn)
 
+        # Select all loaded scenes button
+        self.select_all_scenes_btn = QPushButton("Select all scenes")
+        self.select_all_scenes_btn.setMinimumSize(
+            100, 50
+        )  # Set the minimum size (width, height)
+        self.select_all_scenes_btn.clicked.connect(self.select_all_scenes)
+        button_layout.addWidget(self.select_all_scenes_btn)
+
+        # unselect all loaded scenes button
+        self.unselect_all_scenes_btn = QPushButton("unselect all scenes")
+        self.unselect_all_scenes_btn.setMinimumSize(
+            100, 50
+        )  # Set the minimum size (width, height)
+        self.unselect_all_scenes_btn.clicked.connect(self.unselect_all_scenes)
+        button_layout.addWidget(self.unselect_all_scenes_btn)
+
         splitter.addWidget(button_layout_widget)
 
         # Create another similar table
@@ -232,18 +291,24 @@ class VideoSceneEditor(QWidget):
         self.setLayout(master_layout)
         self.setWindowTitle("Video Scene Editor")
         self.show()
+    def select_all_scenes(self):
+        for i in range(self.table.rowCount()):
+            self.table.selectRow(i)
+    def unselect_all_scenes(self):
+        for i in range(self.table.rowCount()):
+            self.table.clearSelection()
 
     def overlaps_with_excluded_scenes(self, range, excluded_scenes):
         range_start, range_end = float(range[0]), float(range[1])
-        
+
         for excluded_range in excluded_scenes:
             excluded_start, excluded_end = float(excluded_range[0]), float(excluded_range[1])
-            
+
             # Check for overlap
             if (range_start <= excluded_end and range_end >= excluded_start):
                 print(f"scene {range} overlaps with excluded scene: {excluded_start} to {excluded_end}")
                 return True
-        
+
         return False
 
     def load_no_face_ranges(self):
@@ -384,7 +449,9 @@ class VideoSceneEditor(QWidget):
             )
 
             image_widget, max_button_width = self.populate_row( self.table, max_button_width, start_frame, end_frame, start_time, end_time, i)
-            self.table.selectRow(i)
+            # Set the bottom border of the row to be thicker
+
+            # self.table.selectRow(i)
 
         column_width = image_widget.sizeHint().width()
         self.table.setColumnWidth(0, column_width)
@@ -472,32 +539,32 @@ class VideoSceneEditor(QWidget):
     def get_scene_images(self, start_frame, end_frame):
         video_path = self.input_video.text()
         video = cv2.VideoCapture(video_path)
-        
+
         if not video.isOpened():
             raise ValueError(f"Cannot open video file: {video_path}")
-        
+
         num_frames = TOTAL_SCREENCAPS  # You can change this variable to specify the number of frames
         scene_length = end_frame - start_frame + 1
         interval = scene_length // (num_frames + 1)  # Divide the scene into (num_frames + 1) equal parts
         frames = [start_frame + i * interval for i in range(1, num_frames + 1)]
         images = []
-    
+
         for frame in frames:
             video.set(cv2.CAP_PROP_POS_FRAMES, frame)
             ret, img = video.read()
             if ret:
                 # Convert from BGR to RGB
                 image_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
+
                 # Convert the NumPy array to QImage
                 height, width, channel = image_rgb.shape
                 bytes_per_line = 3 * width  # 3 bytes per pixel for RGB
                 q_image = QImage(image_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
-    
+
                 images.append(q_image)
             else:
                 print(f"Warning: Could not read frame {frame}")
-    
+
         video.release()
         return images
 
@@ -651,19 +718,38 @@ class VideoSceneEditor(QWidget):
         if os.path.exists(scenes_file):
             os.remove(scenes_file)
 
-        subprocess.run(
-            [
-                "D:\Installed\Anaconda\envs\scenedetection_python\Scripts\scenedetect.exe",
-                "-i",
-                input_video,
-                # "--merge-last-scene",
-                "list-scenes",
-                "-f",
-                scenes_file,
-                "-s",
-                "detect-adaptive",
-            ]
-        )
+        if self.min_scene_length_line_edit.text() == "":
+            subprocess.run(
+                [
+                    "D:\Installed\Anaconda\envs\scenedetection_python\Scripts\scenedetect.exe",
+                    "-i",
+                    input_video,
+                    # "--merge-last-scene",
+                    "list-scenes",
+                    "-f",
+                    scenes_file,
+                    "-s",
+                    "detect-adaptive",
+                ]
+            )
+        else:
+            argument_string = "{}s".format(self.min_scene_length_line_edit.text())
+            subprocess.run(
+                [
+                    "D:\Installed\Anaconda\envs\scenedetection_python\Scripts\scenedetect.exe",
+                    "-i",
+                    input_video,
+                    # "--merge-last-scene",
+                    "list-scenes",
+                    "-f",
+                    scenes_file,
+                    "-s",
+                    "detect-adaptive",
+                    "--min-scene-len",
+                    argument_string,
+                ]
+            )
+
         self.csv_file.setText(scenes_file)
 
 
